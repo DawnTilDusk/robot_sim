@@ -1,0 +1,18 @@
+# Run from robot_sim/cap-x. Versions are constrained separately.
+# Explicit runtime dependencies of the locked PyRoKi and JAXLS revisions.
+jax
+jaxlib
+jaxlie
+jax-dataclasses
+jaxtyping==0.3.7
+loguru
+rich>=13
+termcolor
+tqdm
+typing-extensions>=4.5
+tyro
+robot-descriptions
+yourdfpy
+trimesh
+viser
+pyliblzfse
