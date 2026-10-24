@@ -1,0 +1,38 @@
+diff --git a/src/lerobot/robots/so_follower/config_so_follower.py b/src/lerobot/robots/so_follower/config_so_follower.py
+index 3d0dd33..b3100a0 100644
+--- a/src/lerobot/robots/so_follower/config_so_follower.py
++++ b/src/lerobot/robots/so_follower/config_so_follower.py
+@@ -23,6 +23,10 @@ class SOFollowerConfig:
+     # Port to connect to the arm
+     port: str
+ 
++    # Feetech model used by every follower joint. SO-101 ships with STS3215;
++    # custom SO-ARM101 builds using STS3250 pass ``sts3250`` from the CLI.
++    motor_model: str = "sts3215"
++
+     disable_torque_on_disconnect: bool = True
+ 
+     # `max_relative_target` limits the magnitude of the relative positional target vector for safety purposes.
+diff --git a/src/lerobot/robots/so_follower/so_follower.py b/src/lerobot/robots/so_follower/so_follower.py
+index 7ca6dc4..b09b260 100644
+--- a/src/lerobot/robots/so_follower/so_follower.py
++++ b/src/lerobot/robots/so_follower/so_follower.py
+@@ -48,12 +48,12 @@ class SOFollower(Robot):
+         self.bus = FeetechMotorsBus(
+             port=self.config.port,
+             motors={
+-                "shoulder_pan": Motor(1, "sts3215", norm_mode_body),
+-                "shoulder_lift": Motor(2, "sts3215", norm_mode_body),
+-                "elbow_flex": Motor(3, "sts3215", norm_mode_body),
+-                "wrist_flex": Motor(4, "sts3215", norm_mode_body),
+-                "wrist_roll": Motor(5, "sts3215", norm_mode_body),
+-                "gripper": Motor(6, "sts3215", MotorNormMode.RANGE_0_100),
++                "shoulder_pan": Motor(1, self.config.motor_model, norm_mode_body),
++                "shoulder_lift": Motor(2, self.config.motor_model, norm_mode_body),
++                "elbow_flex": Motor(3, self.config.motor_model, norm_mode_body),
++                "wrist_flex": Motor(4, self.config.motor_model, norm_mode_body),
++                "wrist_roll": Motor(5, self.config.motor_model, norm_mode_body),
++                "gripper": Motor(6, self.config.motor_model, MotorNormMode.RANGE_0_100),
+             },
+             calibration=self.calibration,
+         )

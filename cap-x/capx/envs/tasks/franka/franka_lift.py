@@ -15,7 +15,7 @@ grasp_pos, grasp_quat = sample_grasp_pose("red cube")
 # Open the gripper before approaching
 open_gripper()
 
-# Approach the grasp pose from above (0.1 m offset in Z)
+# Approach the grasp pose from above (0.1 m offset in Z) 
 goto_pose(grasp_pos, grasp_quat, z_approach=0.1)
 
 # Move to the exact grasp pose

@@ -1,0 +1,6 @@
+# 用户机器上的串口、相机与设备名称配置，不提交到 Git。
+config.env
+
+# Python 运行缓存。
+__pycache__/
+*.py[cod]

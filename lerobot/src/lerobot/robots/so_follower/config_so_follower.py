@@ -28,6 +28,10 @@ class SOFollowerConfig:
     # Port to connect to the arm
     port: str
 
+    # Feetech model used by every follower joint. Stock SO-101 uses STS3215;
+    # custom SO-ARM101 builds with STS3250 pass ``sts3250`` from the CLI.
+    motor_model: str = "sts3215"
+
     disable_torque_on_disconnect: bool = True
 
     # `max_relative_target` limits the magnitude of the relative positional target vector for safety purposes.
