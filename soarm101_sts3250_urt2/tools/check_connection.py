@@ -15,7 +15,7 @@ def load_env(path: Path) -> None:
             os.environ.setdefault(key, value)
 
 
-kit_dir = Path(__file__).resolve().parent
+kit_dir = Path(__file__).resolve().parent.parent
 load_env(kit_dir / "config.env")
 lerobot_dir = (kit_dir / os.environ["LEROBOT_DIR"]).resolve()
 import sys

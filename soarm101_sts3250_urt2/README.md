@@ -28,6 +28,11 @@ STS3250 是 12 V 级别的串行舵机。USB-C 只为 URT-2 的通信逻辑供�
 robot_sim/
 ├── lerobot/                  # Hugging Face LeRobot 源码
 └── soarm101_sts3250_urt2/    # 本目录
+    ├── README.md
+    ├── config.env          # 本机配置
+    ├── config.env.example  # 配置模板
+    ├── patches/            # LeRobot 适配补丁
+    └── tools/              # 启动、配置和测试工具
 ```
 
 如果你只克隆了本目录所在仓库，请在同一级目录获取 LeRobot：
@@ -38,18 +43,23 @@ git clone https://github.com/huggingface/lerobot.git
 
 `config.env` 中的 `LEROBOT_DIR=../lerobot` 对应上述布局；若目录不同，请改为 LeRobot 源码的相对或绝对路径。
 
+所有启动、配置和测试脚本统一放在 `tools/`。下文命令均从本工具包根目录执行。Shell 工具和通信检查脚本会定位根目录的 `config.env`；其中的相对 `LEROBOT_DIR` 始终以工具包根目录为基准，也支持绝对路径。
+
 ## 目录内容
+
+新增 `harness/`：SO101 MuJoCo 键盘控制与 STS3250 真机适配，使用说明见 [harness/README.md](harness/README.md)。默认仅仿真，真机模式需要核对关节映射并准备兼容环境。
 
 | 文件 | 作用 |
 | --- | --- |
 | `patches/lerobot-sts3250-follower.patch` | 为 SO follower 增加 `motor_model` 参数的补丁 |
-| `apply_lerobot_patch.sh` | 应用 STS3250 支持；重复执行不会重复修改 |
+| `tools/apply_lerobot_patch.sh` | 应用 STS3250 支持；重复执行不会重复修改 |
 | `config.env.example` | 本机端口、机械臂名称、leader 和相机配置模板 |
-| `find_port.sh` | 通过拔插 URT-2 自动找出 Linux 串口 |
-| `check_connection.py` | 只读检查 ID 1–6、型号、位置、电压、温度 |
-| `setup_motors.sh` | 为尚未编号的新电机逐颗设置 ID 与波特率 |
-| `calibrate_follower.sh` | 写入机械中位、关节安全行程和 LeRobot 标定文件 |
-| `teleoperate.sh` | 原版 SO-101 leader 到 STS3250 follower 的限幅遥操作 |
+| `tools/find_port.sh` | 通过拔插 URT-2 自动找出 Linux 串口 |
+| `tools/check_connection.py` | 只读检查 ID 1–6、型号、位置、电压、温度 |
+| `tools/setup_motors.sh` | 为尚未编号的新电机逐颗设置 ID 与波特率 |
+| `tools/calibrate_follower.sh` | 写入机械中位、关节安全行程和 LeRobot 标定文件 |
+| `tools/teleoperate.sh` | 原版 SO-101 leader 到 STS3250 follower 的限幅遥操作 |
+| `tools/move_follower.py` | 无主臂时控制从臂底座相对转动 |
 
 ## 1. 创建 Conda 环境并安装 LeRobot
 
@@ -101,10 +111,10 @@ ls -l /dev/ttyACM0
 ```bash
 cd /path/to/robot_sim/soarm101_sts3250_urt2
 cp config.env.example config.env
-bash find_port.sh
+bash tools/find_port.sh
 ```
 
-运行 `find_port.sh` 后：保持 URT-2 已连接，按提示拔掉 USB-C，按 Enter；脚本会输出端口，例如：
+运行 `tools/find_port.sh` 后：保持 URT-2 已连接，按提示拔掉 USB-C，按 Enter；脚本会输出端口，例如：
 
 ```text
 The port of this MotorsBus is '/dev/ttyACM0'
@@ -124,7 +134,7 @@ FOLLOWER_PORT=/dev/ttyACM0
 
 ```bash
 cd /path/to/robot_sim/soarm101_sts3250_urt2
-bash apply_lerobot_patch.sh
+bash tools/apply_lerobot_patch.sh
 ```
 
 补丁后，follower 命令使用 `--robot.motor_model=sts3250`。补丁只修改：
@@ -138,7 +148,7 @@ bash apply_lerobot_patch.sh
 给 URT-2 接上符合 STS3250 规格的外部电源，确认所有电机已串联，再执行：
 
 ```bash
-python check_connection.py
+python tools/check_connection.py
 ```
 
 该脚本只读取数据，不写入 ID、零位、限位或目标位置。成功时应显示六行信息，ID 为 `1–6`，每个 `model` 为 `2825`。
@@ -147,7 +157,7 @@ python check_connection.py
 
 ## 6. 电机 ID
 
-已按下表设置 ID 的机械臂，可跳过 `setup_motors.sh`：
+已按下表设置 ID 的机械臂，可跳过 `tools/setup_motors.sh`：
 
 | ID | LeRobot 关节 | 机械位置 |
 | ---: | --- | --- |
@@ -161,7 +171,7 @@ python check_connection.py
 若电机均为新件且 ID 冲突，才运行：
 
 ```bash
-bash setup_motors.sh
+bash tools/setup_motors.sh
 ```
 
 脚本会按提示一次只连接一颗电机，并分配上述 ID；不要在全部新电机串联时运行。
@@ -171,7 +181,7 @@ bash setup_motors.sh
 通信检查通过后执行：
 
 ```bash
-bash calibrate_follower.sh
+bash tools/calibrate_follower.sh
 ```
 
 程序会先关闭扭矩。将机械臂手动摆到你定义的中位姿态后按 Enter，再依次手动移动除 `wrist_roll` 外的关节至完整、安全的机械行程。它会把当前中位写入 STS3250 的 `Homing_Offset`，并保存最小和最大位置。
@@ -189,18 +199,33 @@ MAX_RELATIVE_TARGET=5
 它限制单次目标变化，便于先确认运动方向和机械限位。连接原版 SO-101 leader 后运行：
 
 ```bash
-bash teleoperate.sh
+bash tools/teleoperate.sh
 ```
 
 确认所有关节方向正确后，再按需要逐步提高限幅。leader 若也使用 STS3250，需要为 leader 做独立的型号适配和标定，本工具包默认 leader 为原版 STS3215。
+
+## 9. 无主臂运动测试
+
+完成通信检查和标定后，在已安装 LeRobot 的 Conda 环境中运行：
+
+```bash
+python tools/move_follower.py --help
+python tools/move_follower.py --angle 3 --speed 5
+```
+
+`--angle` 为相对当前位置的转角（度），负数表示反方向；`--speed` 默认 5，必须大于 0。确认整个路径无障碍且不超过机械限位后，按 Enter 开始；退出前托住机械臂，断开连接会关闭扭矩。
+
+注意：当前脚本中的 `time.sleep(duration / steps)` 已被注释，因此 `--speed` 只参与插值步数计算，不能保证指定的运动速度，打印的预计时间也不代表实际耗时。需要按设定速度推进目标时，应恢复该行延时；即使恢复，通信和电机响应仍会影响实际速度。
+
+该脚本目前直接使用端口 `/dev/ttyACM0` 和 ID `soarm101_sts3250`，不读取 `config.env`；若配置不同，请修改脚本中的对应值。运行依赖当前环境已安装的 LeRobot。
 
 ## 常见问题
 
 | 现象 | 处理方式 |
 | --- | --- |
 | 能看到 `/dev/ttyACM0`，但脚本报 `Permission denied` | 将当前用户加入设备所属组，注销并重新登录。 |
-| `check_connection.py` 找不到电机 | 确认外部舵机电源已接通、URT-2 接在 TTL-BUS、所有线缆牢靠。USB 识别不代表舵机已供电。 |
-| 只识别到 ID 1 | 新电机可能都仍为 ID 1；逐颗运行 `setup_motors.sh`。 |
+| `tools/check_connection.py` 找不到电机 | 确认外部舵机电源已接通、URT-2 接在 TTL-BUS、所有线缆牢靠。USB 识别不代表舵机已供电。 |
+| 只识别到 ID 1 | 新电机可能都仍为 ID 1；逐颗运行 `tools/setup_motors.sh`。 |
 | `model` 不是 2825 | 电机并非标准 STS3250，或固件/型号不同；停止后核对硬件型号。 |
 | 校准或运动时通信中断 | 检查电源电流余量、接线端子、总线线缆和机械卡滞。 |
 
