@@ -2,7 +2,67 @@
 
 基于相邻 `lerobot-kinematics/examples/lerobot_keycon_gpos_101.py`（Box2AI Robotics）迁移，复用 SO101 XML、网格和 FK/IK。默认只运行仿真，不连接串口。路径按脚本位置解析，可以从任意工作目录启动。
 
-## 仿真
+## 手动移动真机，仿真跟随显示
+
+### 单姿态对齐
+
+使用 `align_real.py`：仿真展示一个参考姿态，手动摆好真机前五个关节，在终端按一次 Enter，保持静止约半秒，即可保存零位偏移。夹爪开合无需跟着摆，不再逐关节采集第二姿态。
+
+```bash
+conda activate robot-lr
+cd /home/dawntildusk/Desktop/robot_sim/soarm101_sts3250_urt2
+python harness/align_real.py --release-torque
+```
+
+先托住机械臂，按提示确认关闭扭矩，然后开始姿态对齐。工具不发送运动目标、不修改 LeRobot 标定，退出不恢复扭矩。
+
+默认模型前五轴均为零，因此记录的真机角度就是 `offset_deg`。若此姿态不便摆放，可用 `--reference-deg 0 20 -20 0 0` 指定前五轴参考角度（度）；程序检查模型限位。计算始终为 `offset = 实测角度 - sign × 模型参考角度`，不缩放角度。
+
+方向和夹爪端点优先沿用已有 `mapping.local.json`，没有则使用 `mapping.example.json`（方向全为 +1）。可用 `--mapping` 指定来源。夹爪继续使用原有 LeRobot 标定的 0–100 开度与映射端点，本次不验证或重算夹爪范围。
+
+默认输出 `harness/mapping.local.json`，不覆盖已有文件。已有映射时指定新输出：
+
+```bash
+python harness/align_real.py --release-torque --output harness/mapping.second.json
+python harness/follow_real.py --mapping harness/mapping.second.json
+```
+
+单姿态不能确定正反方向，因此输出 `verified=false`。跟随显示不要求此标志；检查所有关节方向、零位和夹爪后，再将其改为 `true` 用于真机键盘控制。参考姿态为零时，改 `sign` 不影响已采集的零位；参考姿态非零时改方向需要重新对齐以重算偏移。
+
+`--port` 和 `--calibration` 可覆盖串口及标定路径。姿态不可达时请退出，不要硬掰关节。离线测试：`python -m unittest discover -s harness -p 'test_alignment.py'`；尚未进行实物对齐验证。
+
+### 跟随显示
+
+新增 `follow_real.py`，直接读取六个电机的位置更新 MuJoCo，不依赖 IK、不发送运动目标、不写标定。使用同时安装了 LeRobot 与 MuJoCo 的 `robot-lr` 环境：
+
+```bash
+conda activate robot-lr
+cd /home/dawntildusk/Desktop/robot_sim/soarm101_sts3250_urt2
+python harness/follow_real.py
+```
+
+默认不改变扭矩。如果检测到扭矩开启，会退出并提示；请勿强行掰动已使能的关节。需要程序关闭扭矩时，运行：
+
+```bash
+python harness/follow_real.py --release-torque
+```
+
+先托住机械臂，再按提示 Enter 关闭扭矩，然后缓慢移动关节。关闭窗口或 Ctrl+C 退出，程序不恢复扭矩。电机需要正常供电才能读取位置；不要同时运行其他占用该串口的工具。
+
+端口和机械臂 ID 从根目录 `config.env` 读取，标定文件使用当前 LeRobot 的默认路径；可用 `--port`、`--calibration` 覆盖。默认每秒最多读取 30 次，`--fps 15` 可降低频率。
+
+本模块允许使用尚未验证的映射来检查对齐，默认使用脚本目录下的 `mapping.local.json`；也可以用 `--mapping` 指定其他文件。若尚无个人映射，可运行对齐工具生成，或复制模板再调整：
+
+```bash
+cp harness/mapping.example.json harness/mapping.local.json
+python harness/follow_real.py --mapping harness/mapping.local.json
+```
+
+只在个人文件不存在时复制，避免覆盖已调整的数据。方向反了修改对应 `sign`，零位不同修改 `offset_deg`；夹爪端点见下文映射说明。跟随显示复用键盘控制的 `hardware_limits()`，通过 mapping 将真机标定行程换算为 MuJoCo 限位，不再检查 XML 原始范围。终端每秒输出实测角度和夹爪百分比；超出真机标定范围时，列出电机 ID、当前值、允许范围和超出量，继续显示实际姿态而不截断。该模块不会自动求出零位，也不会自动标记映射为已验证。
+
+已在 `robot-lr` 通过 MuJoCo 加载和模拟只读总线测试；实物跟随、图形窗口及映射尚需现场验证。
+
+## 纯仿真键盘控制
 
 本机现有 `robot-kin` 环境可运行模型自检和仿真：
 
@@ -33,7 +93,7 @@ python harness/keyboard_control.py
 python harness/keyboard_control.py --joint-speed 5 --linear-speed 0.01 --gripper-speed 5 --fps 30
 ```
 
-单位分别为度/秒、米/秒、开度百分比/秒。关节速度限制可能使末端实际速度低于请求。模型限位与 IK 限位取交集；真机还会与标定行程取交集。显示使用 `mj_forward` 展示姿态，并非动力学或碰撞安全验证。
+单位分别为度/秒、米/秒、开度百分比/秒。关节速度限制可能使末端实际速度低于请求。纯仿真模式使用模型与 IK 限位的交集；真机模式仅以真机标定行程为关节范围，经过方向和零位映射后同步到 IK 和 MuJoCo，不再取模型限位交集。夹爪保持真机 0–100% 开度范围。速度、反馈偏差和标定一致性检查仍保留。标定范围需要准确，不代表整个行程内都没有碰撞。显示使用 `mj_forward` 展示姿态，并非动力学或碰撞安全验证。
 
 ## 真机依赖
 
@@ -73,7 +133,7 @@ conda activate robot-lr
 python harness/keyboard_control.py --real --mapping harness/mapping.local.json
 ```
 
-端口和 ID 从工具包根目录 `config.env` 读取；`--port /dev/ttyACM0` 可覆盖端口。复用 STS3250 标定，程序不自动重标定。启动读取实际姿态、检查共同限位、将当前位置写入目标后使能扭矩。不要在标定不匹配时强行绕过检查。
+端口和 ID 从工具包根目录 `config.env` 读取；`--port /dev/ttyACM0` 可覆盖端口。复用 STS3250 标定，程序不自动重标定。启动读取实际姿态、检查真机标定行程、将当前位置写入目标后使能扭矩。不要在标定不匹配时强行绕过检查。
 
 真机窗口显示实际反馈，目标还受驱动单次 1°（夹爪 1 个开度单位）限幅。超过 5° 的关节跟踪偏差、越界反馈或通信异常会结束控制并尝试关闭扭矩；超时由底层串口驱动处理。退出、异常或 Ctrl+C 都可能导致机械臂失去支撑，退出前先托住或放稳机械臂。空格是软件运动使能，不替代物理断电。
 

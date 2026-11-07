@@ -22,6 +22,52 @@ def positive(value):
     return value
 
 
+def hardware_limits(calibration, signs, offsets, grip):
+    """Map calibrated hardware travel to model coordinates, without model clipping."""
+    bounds = []
+    for i, name in enumerate(NAMES[:5]):
+        cal = calibration[name]
+        if not 0 <= cal.range_min < cal.range_max <= 4095:
+            raise ValueError(f'无效 STS3250 标定行程：{name}')
+        mid = (cal.range_min + cal.range_max) / 2
+        bounds.append(sorted(math.radians(((raw - mid) * 360 / 4095 - offsets[i]) / signs[i])
+                             for raw in (cal.range_min, cal.range_max)))
+    bounds.append(sorted(grip))  # Hardware gripper opening 0–100%.
+    return bounds
+
+
+def check_pose_limits(q, limits, signs, offsets, grip, stage, tolerance=0.0):
+    """Report every offending motor, in hardware units rather than model radians."""
+    errors = []
+    for i, (value, (low, high)) in enumerate(zip(q, limits)):
+        if math.isfinite(value) and low - tolerance <= value <= high + tolerance:
+            continue
+        if i < 5:
+            convert = lambda v: signs[i] * math.degrees(v) + offsets[i]
+            unit = '°'
+        else:
+            convert = lambda v: (v - grip[0]) / (grip[1] - grip[0]) * 100
+            unit = '%'
+        current = convert(value)
+        lower, upper = sorted((convert(low), convert(high)))
+        if not math.isfinite(current):
+            reason = '位置读数非有限数'
+        elif current < lower:
+            reason = f'低于下限 {lower-current:.3f}{unit}'
+        else:
+            reason = f'高于上限 {current-upper:.3f}{unit}'
+        errors.append(f'ID {i+1} ({NAMES[i]}): 当前 {current:.3f}{unit}, '
+                      f'真机允许 [{lower:.3f}, {upper:.3f}]{unit}，{reason}')
+    if errors:
+        raise RuntimeError(stage + '\n' + '\n'.join(errors))
+
+
+def send_target(arm, target, moving, to_action, from_observation):
+    sent = from_observation(arm.send_action(to_action(target)))
+    # During hold, clamping must not redefine the fixed goal as the arm sags.
+    return sent if moving else target
+
+
 def main():
     parser = argparse.ArgumentParser(description='SO101 键盘控制：默认仿真，按住空格再按方向键运动')
     parser.add_argument('--real', action='store_true', help='连接 STS3250 真机')
@@ -53,8 +99,9 @@ def main():
     indices = [model.jnt_qposadr[model.joint(name).id] for name in NAMES]
     limits = np.array([model.jnt_range[model.joint(name).id] for name in NAMES])
     kin = get_robot('so101')
-    limits[1:5, 0] = np.maximum(limits[1:5, 0], kin.qlim[0])
-    limits[1:5, 1] = np.minimum(limits[1:5, 1], kin.qlim[1])
+    if not args.real:
+        limits[1:5, 0] = np.maximum(limits[1:5, 0], kin.qlim[0])
+        limits[1:5, 1] = np.minimum(limits[1:5, 1], kin.qlim[1])
     mapping = json.loads((args.mapping or Path(__file__).with_name('mapping.example.json')).read_text())
     signs = np.asarray(mapping['sign'], dtype=float)
     offsets = np.asarray(mapping['offset_deg'], dtype=float)
@@ -126,18 +173,12 @@ def main():
             if not arm.is_calibrated:
                 raise RuntimeError('电机与标定文件不一致，请先单独标定')
             q = from_observation(arm.get_observation())
-            for i, name in enumerate(NAMES[:5]):
-                cal = arm.calibration[name]
-                mid = (cal.range_min + cal.range_max) / 2
-                raw_limits = np.array([cal.range_min, cal.range_max])
-                degree_limits = (raw_limits - mid) * 360 / 4095
-                mapped = np.sort(np.deg2rad((degree_limits - offsets[i]) / signs[i]))
-                limits[i, 0] = max(limits[i, 0], mapped[0])
-                limits[i, 1] = min(limits[i, 1], mapped[1])
-            limits[5, 0] = max(limits[5, 0], min(grip))
-            limits[5, 1] = min(limits[5, 1], max(grip))
-            if np.any(limits[:, 0] >= limits[:, 1]) or np.any(q < limits[:, 0]) or np.any(q > limits[:, 1]):
-                raise RuntimeError('实际姿态或映射不在模型/标定共同限位内，拒绝运动')
+            limits = np.asarray(hardware_limits(arm.calibration, signs, offsets, grip))
+            # IK and visualization must use the same hardware-derived limits.
+            kin.qlim = limits[1:5].T
+            for i, name in enumerate(NAMES):
+                model.jnt_range[model.joint(name).id] = limits[i]
+            check_pose_limits(q, limits, signs, offsets, grip, '启动姿态超限，拒绝运动')
             # Seed each goal from its encoder before enabling torque, so stale goals
             # from an earlier session cannot pull the arm toward an old pose.
             arm.bus.disable_torque()
@@ -153,8 +194,7 @@ def main():
             raw = arm.bus.sync_read('Present_Position', normalize=False)
             arm.bus.sync_write('Goal_Position', raw, normalize=False)
             q = from_observation(arm.get_observation())
-            if np.any(q < limits[:, 0]) or np.any(q > limits[:, 1]):
-                raise RuntimeError('使能前姿态已超出共同限位，拒绝运动')
+            check_pose_limits(q, limits, signs, offsets, grip, '使能前姿态超限，拒绝运动')
             arm.bus.enable_torque()
 
         target = q.copy()
@@ -170,8 +210,8 @@ def main():
                 last = started
                 if arm:
                     q = from_observation(arm.get_observation())
-                    if not np.all(np.isfinite(q)) or np.any(q < limits[:, 0] - 0.02) or np.any(q > limits[:, 1] + 0.02):
-                        raise RuntimeError('反馈超出限位，停止控制')
+                    check_pose_limits(q, limits, signs, offsets, grip,
+                                      '运行反馈超限，停止控制', tolerance=0.02)
                     if np.any(np.abs(q[:5] - target[:5]) > np.deg2rad(5)):
                         raise RuntimeError('实际位置偏离目标超过 5°，停止控制')
                 with lock:
@@ -191,15 +231,14 @@ def main():
                         solved, success = lerobot_IK(target[1:5].copy(), pose, robot=kin)
                         if success and np.all(np.isfinite(solved)):
                             candidate[1:5] = solved
-                else:
-                    candidate = q.copy()
+                # Without space, keep the last commanded pose, not the measured
+                # pose: following feedback here turns gravity sag into a new goal.
                 candidate = np.clip(candidate, limits[:, 0], limits[:, 1])
                 rate = np.r_[np.full(5, np.deg2rad(args.joint_speed)),
                              abs(grip[1] - grip[0]) * args.gripper_speed / 100]
                 target = target + np.clip(candidate - target, -rate * dt, rate * dt)
                 if arm:
-                    # Respect the driver's actual clamped command, avoiding accumulating unreachable targets.
-                    target = from_observation(arm.send_action(to_action(target)))
+                    target = send_target(arm, target, 'space' in keys, to_action, from_observation)
                 else:
                     q = target.copy()
                 data.qpos[indices] = q

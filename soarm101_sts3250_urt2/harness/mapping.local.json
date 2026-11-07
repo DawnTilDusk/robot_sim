@@ -1,0 +1,38 @@
+{
+  "verified": true,
+  "sign": [
+    1,
+    1,
+    1,
+    1,
+    1
+  ],
+  "offset_deg": [
+    -6.9010989010989015,
+    -1.1428571428571428,
+    90.5934065934066,
+    9.626373626373626,
+    -171.2967032967033
+  ],
+  "gripper_radians_at_0_100": [
+    -0.17453297762778586,
+    1.7453291995659765
+  ],
+  "alignment_method": "single_pose",
+  "reference_deg": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "alignment_samples": {
+    "shoulder_pan": -6.9010989010989015,
+    "shoulder_lift": -1.1428571428571428,
+    "elbow_flex": 90.5934065934066,
+    "wrist_flex": 9.626373626373626,
+    "wrist_roll": -171.2967032967033
+  },
+  "calibration_file": "/home/dawntildusk/.cache/huggingface/lerobot/calibration/robots/so_follower/soarm101_sts3250.json",
+  "source_mapping": "/home/dawntildusk/Desktop/robot_sim/soarm101_sts3250_urt2/harness/mapping.example.json"
+}

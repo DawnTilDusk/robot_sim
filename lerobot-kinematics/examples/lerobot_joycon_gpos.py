@@ -17,7 +17,7 @@ os.environ["MUJOCO_GL"] = "egl"
 
 JOINT_NAMES = ["Rotation", "Pitch", "Elbow", "Wrist_Pitch", "Wrist_Roll", "Jaw"]
 
-xml_path = "./examples/scene.xml"
+xml_path = "scene.xml"
 mjmodel = mujoco.MjModel.from_xml_path(xml_path)
 qpos_indices = np.array([mjmodel.jnt_qposadr[mjmodel.joint(name).id] for name in JOINT_NAMES])
 mjdata = mujoco.MjData(mjmodel)
